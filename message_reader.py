@@ -1,5 +1,6 @@
 import json
 
+from os import getcwd
 from os import listdir
 from os.path import isfile, join
 
@@ -158,7 +159,7 @@ def addMessageToDayMap(date: date, message: Message):
     day_to_message[date].append(message)
     
 
-allfiles = [join('/Users/drosenstein/Programs/pizzeria-memories/messages', f) for f in listdir('/Users/drosenstein/Programs/pizzeria-memories/messages') if isfile(join('/Users/drosenstein/Programs/pizzeria-memories/messages', f))]
+allfiles = [join(getcwd(), 'messages', f) for f in listdir(join(getcwd(), 'messages')) if isfile(join(getcwd(), 'messages', f))]
 
 print("Parsing Files...")
 
