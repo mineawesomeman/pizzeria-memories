@@ -161,3 +161,4 @@ cython_debug/
 
 # Don't leak my discord messages
 messages/
+messages.*
