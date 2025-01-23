@@ -63,8 +63,11 @@ class Message:
     def __eq__(self, value):
         return self.discord_id == value.discord_id
     
+    def isDM(self):
+        return self.channel.server_id == "0"
+
     def getMessageLink(self):
-        if self.channel.server_id == 0:
+        if self.isDM():
             return "https://discord.com/channels/@me/" + self.channel.channel_id + "/" + self.discord_id
         return "https://discord.com/channels/" + self.channel.server_id + "/" + self.channel.channel_id + "/" + self.discord_id
 
@@ -92,14 +95,21 @@ def calcWeight(msg: Message):
         if word.lower() in ["cw", "tw", "death", "trump", "kill", "kms"]: 
             weight = 0
 
-        if "@" in word or word.lower() in ["david", "dayvid", "syc", "sycamore", "reed", "abi", "ethan"]: # if a mention mentions someone else, increase its weight
+        # if a mention mentions someone else, increase its weight
+        if "@" in word or word.lower() in ["david", "dayvid", "syc", "sycamore", "reed", "abi", "ethan"]: 
             weight *= 1.1
         
     if msg.channel.channel_id == 0: # boost chances of DMs being sent
         weight *= 1.1
 
-    if word_count <= 5: # penalize short messages, since they rarely are interesting. shorter messages get penalized more
+    # penalize short messages, since they rarely are interesting. shorter messages get penalized more
+    # will not penalize messages with pictures
+    if word_count <= 5 and len(message.attachments) == 0: 
         weight *= .1 * word_count
+
+    # give a little boost to messages with pictures
+    if len(message.attachments) > 0:
+        weight *= 1.2
 
     if "venting" in msg.channel.channel_name: # penalize messages in venting
         weight *= .3
