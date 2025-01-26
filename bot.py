@@ -1,5 +1,6 @@
 import os
 import discord
+from discord.ext import tasks
 import message_reader as mr
 import datetime as dt
 from dotenv import load_dotenv
@@ -33,9 +34,9 @@ def makeEmbed(message: mr.Message):
 
     return msg
 
-async def sendMemory(channel):
+async def sendMemory(channel, text = ""):
     msg = mr.getMessageFromToday()
-    await channel.send(embed=makeEmbed(msg))
+    await channel.send(text, embed=makeEmbed(msg))
 
 load_dotenv()
 
@@ -62,7 +63,7 @@ async def on_ready():
 
     assert memoryChannel != None
 
-    # await memoryChannel.send("golden freddie is alive")
+    background_task.start()
 
     print(f'We have logged in as {client.user}')
 
@@ -79,7 +80,7 @@ async def on_message(message):
     
     if message.content.startswith('$memory'):
         await sendMemory(memoryChannel)
-    
+
     if message.content.startswith("$date"):
         await message.channel.send(f"Today's date is {dt.date.today()}")
 
@@ -96,5 +97,13 @@ async def on_message(message):
         else:
             await message.channel.send("Usage: $message <key>")
 
+@tasks.loop(minutes=1)
+async def background_task():
+    global memoryChannel
+
+    now = dt.datetime.now()
+    print(f"checking with time {now}")
+    if now.minute == 0 and now.hour == 9:
+        await sendMemory(memoryChannel, "Message of the day @everyone")
 
 client.run(TOKEN)
