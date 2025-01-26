@@ -102,7 +102,6 @@ async def background_task():
     global memoryChannel
 
     now = dt.datetime.now()
-    print(f"checking with time {now}")
     if now.minute == 0 and now.hour == 9:
         await sendMemory(memoryChannel, "Message of the day @everyone")
 
