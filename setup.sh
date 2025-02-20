@@ -10,5 +10,6 @@ python3 -m venv ./venv
 # install libraries
 ./venv/bin/pip install -r requirements.txt
 
-echo Unpacking Messages
-tar -xf messages.tar.gz
+# uncomment if you are using local messages
+#echo Unpacking Messages
+#tar -xf messages.tar.gz
