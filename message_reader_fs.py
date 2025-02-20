@@ -1,11 +1,20 @@
-import json
-
-from os import getcwd
-from os import listdir
-from os.path import isfile, join
-
 from datetime import *
+from google.cloud import firestore
+import google.auth as auth
 import numpy as np
+import pytz
+from readerwriterlock.rwlock import RWLockWrite
+
+creds, project_id = auth.load_credentials_from_file("service-account-auth.json")
+
+print("authing")
+db = firestore.Client(project=project_id, credentials=creds)
+
+channels = db.collection("servers", "pizzeria", "channels")
+people = db.collection("servers", "pizzeria", "people")
+messages = db.collection("servers", "pizzeria", "messages")
+
+EDT = pytz.timezone('US/Eastern')
 
 class Channel:
     server_name: str = ""
@@ -79,10 +88,17 @@ class Message:
             return "https://discord.com/channels/@me/" + self.channel.channel_id + "/" + self.discord_id
         return "https://discord.com/channels/" + self.channel.server_id + "/" + self.channel.channel_id + "/" + self.discord_id
 
-channels = dict[str, Channel]()
-people = dict[str, Person]()
-messages = dict[str, Message]()
-day_to_message = dict[date, list[Message]]()
+todays_messages = set[Message]()
+date_of_todays_messages = date(1, 1, 1)
+tm_lock = RWLockWrite()
+
+def getMessages() -> tuple[set[Message], date]:
+    global tm_lock
+    global todays_messages
+    global date_of_todays_messages
+
+    with tm_lock.gen_rlock():
+        return todays_messages, date_of_todays_messages
 
 def calcWeight(msg: Message) -> float:
     weight = 50
@@ -126,96 +142,89 @@ def calcWeight(msg: Message) -> float:
     return weight
 
 def getMessageFromToday() -> Message:
+    all_messages, all_messages_date = getMessages()
+
     messages_to_consider = []
     weights = []
     total_weight = 0
 
-    today = date.today()
-    this_year = today.year
-
-    for year in range(2020, this_year):
-        date_to_check = today.replace(year=year)
-        if date_to_check in day_to_message:
-            for message in day_to_message[date_to_check]:
-                msg_weight = calcWeight(message)
-                messages_to_consider.append(message)
-                weights.append(msg_weight)
-                total_weight += msg_weight
+    if all_messages_date != date.today():
+        updateTodaysMessages()
+    for message in all_messages:
+        msg_weight = calcWeight(message)
+        messages_to_consider.append(message)
+        weights.append(msg_weight)
+        total_weight += msg_weight
     
     message_choice = np.random.choice(messages_to_consider, 1, p=np.array(weights)/total_weight)
 
     return message_choice[0]
 
-def getMessage(id: str) -> Message:
-    global messages
-
-    if id in messages:
-        return messages[id]
-    else:
+def getMessage(id: str) -> Message | None:
+    try:
+        return loadMessage(db.document("servers", "pizzeria", "messages", id).get())
+    except:
         return None
 
-def getOrPersistPerson(id: str, author_json: any) -> Person:
-    global people
+def loadMessage(docsnap: firestore.DocumentSnapshot) -> Message:
+    sendsnap: firestore.DocumentSnapshot = docsnap.get("sender").get()
+    chansnap: firestore.DocumentSnapshot = docsnap.get("channel").get()
 
-    if id in people:
-        return people[id]
+    sender_username: str = sendsnap.get("username")
+    sender_id: str = sendsnap.get("discord_id")
+    sender_nickname: str = sendsnap.get("nickname")
+    sender_color: str = sendsnap.get("color")
+    sender_avatar: str = sendsnap.get("avatar")
+
+    sender = Person(sender_username, sender_id, sender_nickname, sender_color, sender_avatar)
+
+    channel_server_name: str = chansnap.get("server_name")
+    channel_name: str = chansnap.get("channel_name")
+    channel_icon: str = chansnap.get("icon")
+    channel_id: str = chansnap.get("channel_id")
+    channel_server_id: str = chansnap.get("server_id")
+
+    channel = Channel(channel_server_name, channel_name, channel_icon, channel_id, channel_server_id)
+
+    content: str = docsnap.get("content")
+    ts: datetime = docsnap.get("ts").astimezone(EDT)
+    discord_id: str = docsnap.get("discord_id")
+    attachments = []
+
+    for attach_data in docsnap.get("attachments"):
+        att_name = attach_data["name"]
+        att_url = attach_data["url"]
+
+        attachment = Attachment(att_url, att_name)
+        attachments.append(attachment)
     
-    username = author_json["name"]
-    nickname = author_json["nickname"]
-    color = author_json["color"]
-    avatar = author_json["avatarUrl"]
+    return Message(sender, channel, content, ts, discord_id, attachments)
 
-    person = Person(username=username, discord_id=id, nickname=nickname, color=color, avatar=avatar)
-    people[id] = person
-    return person
+def updateTodaysMessages() -> None:
+    global tm_lock
+    with tm_lock.gen_wlock():
+        global todays_messages
+        global date_of_todays_messages
 
-def addMessageToDayMap(date: date, message: Message) -> None:
-    global day_to_message
+        if date_of_todays_messages == date.today():
+            return
 
-    if not date in day_to_message:
-        day_to_message[date] = list[Message]()
-    day_to_message[date].append(message)
-    
+        today = date.today()
+        todays_messages = set[Message]()
+        date_of_todays_messages = today
 
-allfiles = [join(getcwd(), 'messages', f) for f in listdir(join(getcwd(), 'messages')) if isfile(join(getcwd(), 'messages', f))]
+        for year in range(2020, today.year):
+            start = datetime(year, today.month, today.day, 0, 0, 0, 0, EDT)
+            end = datetime(year, today.month, today.day, 23, 59, 59, 999999, EDT)
 
-print("Parsing Files...")
+            query = messages.where(filter=firestore.FieldFilter("ts", ">=", start)).where(filter=firestore.FieldFilter("ts", "<=", end)).limit(1000)
 
-for file in allfiles:
-    print(f"Parsing {file}...")
+            docs = query.get()
 
-    with open(file, "r") as jsonFile:
-        data = json.load(jsonFile)
-        guild_json = data['guild']
-        channel_json = data['channel']
+            for doc in docs:
+                docobj = loadMessage(doc)
+                todays_messages.add(docobj)
 
-        current_channel = Channel(server_name=guild_json["name"], channel_name=channel_json["name"], icon=guild_json["iconUrl"], channel_id=channel_json["id"], server_id=guild_json["id"])
-
-        channels[channel_json["id"]] = current_channel
-
-        all_messages = data["messages"]
-
-        for message_json in all_messages:
-            author_json = message_json["author"]
-            author_id = author_json["id"]
-            author = getOrPersistPerson(author_id, author_json)
-
-            content = message_json["content"]
-            discord_id = message_json["id"]
-            timestamp = datetime.fromisoformat(message_json["timestamp"])
-
-            all_attachments = message_json["attachments"]
-            attachments = list()
-
-            for attachment_json in all_attachments:
-                attachment_name = attachment_json["fileName"]
-                attachment_url = attachment_json["url"]
-                attachments.append(Attachment(attachment_url, attachment_name))
-
-            message = Message(sender=author, channel=current_channel, content=content, ts=timestamp, discord_id=discord_id, attachments=attachments)
-            message_date = timestamp.date()
-
-            messages[discord_id] = message
-            addMessageToDayMap(message_date, message)
-
-print("Parsing Complete!")
+print("initializing message cache")
+updateTodaysMessages()
+print("message reader ready")

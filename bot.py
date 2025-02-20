@@ -1,17 +1,19 @@
 import os
 import discord
 from discord.ext import tasks
-import message_reader as mr
+import message_reader_fs as mr
 import datetime as dt
 from dotenv import load_dotenv
 
-def makeFooter(message: mr.Message):
+## if you are getting an SSL error, check this thread https://github.com/Rapptz/discord.py/issues/4159#issuecomment-700615568
+
+def makeFooter(message: mr.Message) -> str:
     if message.isDM():
         return "Messaged in " + message.channel.channel_name
     
     return "Messaged in #" + message.channel.channel_name + " in " + message.channel.server_name
 
-def makeEmbed(message: mr.Message):
+def makeEmbed(message: mr.Message) -> discord.Embed:
     author_name = message.sender.nickname + " (" + message.sender.username + ")"
     url = message.getMessageLink()
     author_icon_url = message.sender.avatar
@@ -34,7 +36,7 @@ def makeEmbed(message: mr.Message):
 
     return msg
 
-async def sendMemory(channel, text = ""):
+async def sendMemory(channel, text = "") -> None: 
     msg = mr.getMessageFromToday()
     await channel.send(text, embed=makeEmbed(msg))
 
@@ -88,8 +90,8 @@ async def on_message(message):
         words = message.content.split()
         if len(words) >= 2:
             key = words[1]
-            if key in mr.messages:
-                to_send = mr.messages[key]
+            to_send = mr.getMessage(key)
+            if to_send is not None:
                 embed = makeEmbed(to_send)
                 await message.channel.send(embed=embed)
             else:
@@ -104,5 +106,8 @@ async def background_task():
     now = dt.datetime.now()
     if now.minute == 0 and now.hour == 9:
         await sendMemory(memoryChannel, "Message of the day @everyone")
+    
+    if now.minute == 0 and now.hour == 2:
+        mr.updateTodaysMessages()
 
 client.run(TOKEN)

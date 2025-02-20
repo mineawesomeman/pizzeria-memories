@@ -162,3 +162,6 @@ cython_debug/
 # Don't leak my discord messages
 messages/
 messages.*
+
+# Don't leak my gcloud keys
+service-account-auth.json
