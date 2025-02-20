@@ -165,3 +165,6 @@ messages.*
 
 # Don't leak my gcloud keys
 service-account-auth.json
+
+#mac moment fr fr
+.DS_Store
