@@ -75,29 +75,56 @@ async def on_message(message):
         return
 
     if message.channel != memoryChannel:
-        return
+        username = message.author.global_name
+        discord_sender_id = str(message.author.id)
+        nickname = message.author.display_name
+        color = str(message.author.color)
+        avatar = str(message.author.display_avatar)
+        sender = mr.Person(username, discord_sender_id, nickname, color, avatar)
 
-    if message.content.startswith('$bot-check'):
-        await message.channel.send('The bot is alive!!!')
-    
-    if message.content.startswith('$memory'):
-        await sendMemory(memoryChannel)
+        server_name = message.channel.guild.name
+        channel_name = message.channel.name
+        icon = str(message.channel.icon)
+        channel_id = str(message.channel.id)
+        server_id = str(message.channel.guild.id)
+        channel = mr.Channel(server_name, channel_name, icon, channel_id, server_id)
 
-    if message.content.startswith("$date"):
-        await message.channel.send(f"Today's date is {dt.date.today()}")
+        content = message.content
+        ts = message.created_at
+        discord_message_id = str(message.id)
+        attachments = list()
 
-    if message.content.startswith("$message"):
-        words = message.content.split()
-        if len(words) >= 2:
-            key = words[1]
-            to_send = mr.getMessage(key)
-            if to_send is not None:
-                embed = makeEmbed(to_send)
-                await message.channel.send(embed=embed)
+        for attachment in message.attachments:
+            attachment_name = attachment.filename
+            attachment_url = attachment.url
+
+            attachments.append(mr.Attachment(attachment_url, attachment_name))
+
+        message = mr.Message(sender, channel, content, ts, discord_message_id, attachments)
+
+        mr.putMessage(message)
+    else:
+        if message.content.startswith('$bot-check'):
+            await message.channel.send('The bot is alive!!!')
+        
+        if message.content.startswith('$memory'):
+            await sendMemory(memoryChannel)
+
+        if message.content.startswith("$date"):
+            await message.channel.send(f"Today's date is {dt.date.today()}")
+
+        if message.content.startswith("$message"):
+            words = message.content.split()
+            if len(words) >= 2:
+                key = words[1]
+                to_send = mr.getMessage(key)
+                if to_send is not None:
+                    embed = makeEmbed(to_send)
+                    await message.channel.send(embed=embed)
+                else:
+                    await message.channel.send(f"Unable to find message with id {key}")
             else:
-                await message.channel.send(f"Unable to find message with id {key}")
-        else:
-            await message.channel.send("Usage: $message <key>")
+                await message.channel.send("Usage: $message <key>")
 
 @tasks.loop(minutes=1)
 async def background_task():

@@ -3,6 +3,7 @@ from google.cloud import firestore
 import google.auth as auth
 import numpy as np
 import pytz
+import random
 from readerwriterlock.rwlock import RWLockWrite
 
 creds, project_id = auth.load_credentials_from_file("service-account-auth.json")
@@ -29,6 +30,17 @@ class Channel:
         self.icon = icon
         self.channel_id = channel_id
         self.server_id = server_id
+    
+    def toDict(self) -> dict[str, any]:
+        out = dict()
+
+        out["server_name"] = self.server_name
+        out["channel_name"] = self.channel_name
+        out["icon"] = self.icon
+        out["channel_id"] = self.channel_id
+        out["server_id"] = self.server_id
+        
+        return out
 
 class Person:
     username: str = ""
@@ -49,6 +61,17 @@ class Person:
     
     def __eq__(self, value):
         return self.discord_id == value.discord_id
+    
+    def toDict(self) -> dict[str, any]:
+        out = dict()
+
+        out["username"] = self.username
+        out["discord_id"] = self.discord_id
+        out["nickname"] = self.nickname
+        out["color"] = self.color
+        out["avatar"] = self.avatar
+
+        return out
 
 class Attachment:
     url: str = ""
@@ -82,6 +105,29 @@ class Message:
     
     def isDM(self) -> bool:
         return self.channel.server_id == "0"
+    
+    def toDict(self) -> dict[str, any]:
+        out = dict()
+
+        out["sender"] = db.document("servers", "pizzeria", "people", self.sender.discord_id)
+        out["channel"] = db.document("servers", "pizzeria", "channels", self.channel.channel_id)
+        out["content"] = self.content
+        out["ts"] = self.ts
+        out["discord_id"] = self.discord_id
+
+        attachments = []
+
+        for attachment in self.attachments:
+            att_out = dict()
+            
+            att_out["url"] = attachment.url
+            att_out["name"] = attachment.name
+
+            attachments.append(att_out)
+        
+        out["attachments"] = attachments
+
+        return out
 
     def getMessageLink(self) -> str:
         if self.isDM():
@@ -99,6 +145,49 @@ def getMessages() -> tuple[set[Message], date]:
 
     with tm_lock.gen_rlock():
         return todays_messages, date_of_todays_messages
+
+def putMessage(message: Message):
+    channelref = db.document("servers", "pizzeria", "channels", message.channel.channel_id)
+    channelsnap = channelref.get()
+
+    if channelsnap.exists:
+        # only do it 1 out of every 5 messages
+        if random.randrange(0,5) == 0:
+            # we only check icon, channel_name, and server_name since its the only things that would change
+            channel = loadChannel(channelsnap)
+
+            if channel.channel_name != message.channel.channel_name:
+                channelref.update({"channel_name": message.channel.channel_name})
+            
+            if channel.server_name != message.channel.server_name:
+                channelref.update({"server_name": message.channel.server_name})
+
+            if channel.icon != message.channel.icon:
+                channelref.update({"icon": message.channel.icon})
+    else:
+        channels.add(message.channel.toDict(), message.channel.channel_id)
+    
+    senderref = db.document("servers", "pizzeria", "people", message.sender.discord_id)
+    sendersnap = senderref.get()
+    
+    if sendersnap.exists:
+        # we only do this on 1 out of every 5 messages
+        if random.randrange(0,5) == 0:
+            # we only check nickname, avatar, and color since those change
+            person = loadPerson(sendersnap)
+
+            if person.nickname != message.sender.nickname:
+                senderref.update({"nickname": message.sender.nickname})
+            
+            if person.avatar != message.sender.avatar:
+                senderref.update({"avatar": message.sender.avatar})
+            
+            if person.color != message.sender.color:
+                senderref.update({"color": message.sender.color})
+    else:
+        people.add(message.sender.toDict(), message.sender.discord_id)
+
+    messages.add(message.toDict(), message.discord_id)
 
 def calcWeight(msg: Message) -> float:
     weight = 50
@@ -170,21 +259,8 @@ def loadMessage(docsnap: firestore.DocumentSnapshot) -> Message:
     sendsnap: firestore.DocumentSnapshot = docsnap.get("sender").get()
     chansnap: firestore.DocumentSnapshot = docsnap.get("channel").get()
 
-    sender_username: str = sendsnap.get("username")
-    sender_id: str = sendsnap.get("discord_id")
-    sender_nickname: str = sendsnap.get("nickname")
-    sender_color: str = sendsnap.get("color")
-    sender_avatar: str = sendsnap.get("avatar")
-
-    sender = Person(sender_username, sender_id, sender_nickname, sender_color, sender_avatar)
-
-    channel_server_name: str = chansnap.get("server_name")
-    channel_name: str = chansnap.get("channel_name")
-    channel_icon: str = chansnap.get("icon")
-    channel_id: str = chansnap.get("channel_id")
-    channel_server_id: str = chansnap.get("server_id")
-
-    channel = Channel(channel_server_name, channel_name, channel_icon, channel_id, channel_server_id)
+    sender = loadPerson(sendsnap)
+    channel = loadChannel(chansnap)
 
     content: str = docsnap.get("content")
     ts: datetime = docsnap.get("ts").astimezone(EDT)
@@ -199,6 +275,24 @@ def loadMessage(docsnap: firestore.DocumentSnapshot) -> Message:
         attachments.append(attachment)
     
     return Message(sender, channel, content, ts, discord_id, attachments)
+
+def loadPerson(docsnap: firestore.DocumentSnapshot) -> Person:
+    person_username: str = docsnap.get("username")
+    person_id: str = docsnap.get("discord_id")
+    person_nickname: str = docsnap.get("nickname")
+    person_color: str = docsnap.get("color")
+    person_avatar: str = docsnap.get("avatar")
+
+    return Person(person_username, person_id, person_nickname, person_color, person_avatar)
+
+def loadChannel(docsnap: firestore.DocumentSnapshot) -> Channel:
+    channel_server_name: str = docsnap.get("server_name")
+    channel_name: str = docsnap.get("channel_name")
+    channel_icon: str = docsnap.get("icon")
+    channel_id: str = docsnap.get("channel_id")
+    channel_server_id: str = docsnap.get("server_id")
+
+    return Channel(channel_server_name, channel_name, channel_icon, channel_id, channel_server_id)
 
 def updateTodaysMessages() -> None:
     global tm_lock
