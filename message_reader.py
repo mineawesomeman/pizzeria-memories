@@ -177,7 +177,7 @@ def addMessageToDayMap(date: date, message: Message) -> None:
     day_to_message[date].append(message)
     
 
-allfiles = [join(getcwd(), 'messages', f) for f in listdir(join(getcwd(), 'messages')) if isfile(join(getcwd(), 'messages', f))]
+allfiles = [join(getcwd(), 'messages2', f) for f in listdir(join(getcwd(), 'messages2')) if isfile(join(getcwd(), 'messages2', f))]
 
 print("Parsing Files...")
 

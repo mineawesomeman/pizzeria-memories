@@ -57,6 +57,14 @@ def messageToDict(message: mr.Message) -> dict[str, any]:
 
     return out
 
+def loadPerson(docsnap: firestore.DocumentSnapshot) -> mr.Person:
+    person_username: str = docsnap.get("username")
+    person_id: str = docsnap.get("discord_id")
+    person_nickname: str = docsnap.get("nickname")
+    person_color: str = docsnap.get("color")
+    person_avatar: str = docsnap.get("avatar")
+
+    return mr.Person(person_username, person_id, person_nickname, person_color, person_avatar)
 
 print("uploading channels")
 
@@ -74,9 +82,24 @@ for person_id in mr.people:
     person = mr.people[person_id]
     print(f"found person {person.username}")
 
-    person_dict = personToDict(person)
+    senderref = db.document("servers", "pizzeria", "people", person_id)
+    sendersnap = senderref.get()
+    
+    if sendersnap.exists:
+        # we only check nickname, avatar, and color since those change
+        loadedperson = loadPerson(sendersnap)
 
-    people.add(person_dict, person_id)
+        if person.nickname != loadedperson.nickname:
+            senderref.update({"nickname": person.nickname})
+        
+        if person.avatar != loadedperson.avatar:
+            senderref.update({"avatar": person.avatar})
+        
+        if person.color != loadedperson.color:
+            senderref.update({"color": person.color})
+    else:
+        person_dict = personToDict(person)
+        people.add(person_dict, person_id)
 
 print("uploading messages (this will take a while!)")
 message_count = len(mr.messages)

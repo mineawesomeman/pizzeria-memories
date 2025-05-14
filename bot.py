@@ -84,7 +84,7 @@ async def on_message(message):
 
         server_name = message.channel.guild.name
         channel_name = message.channel.name
-        icon = str(message.channel.icon)
+        icon = str(message.channel.guild.icon)
         channel_id = str(message.channel.id)
         server_id = str(message.channel.guild.id)
         channel = mr.Channel(server_name, channel_name, icon, channel_id, server_id)
