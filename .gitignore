@@ -164,8 +164,12 @@ messages/
 messages.*
 messages2/
 
-# Don't leak my gcloud keys
+# Don't leak my gcloud keys or info lol
 service-account-auth.json
+upload-to-ar.sh
 
 #mac moment fr fr
 .DS_Store
+
+# vscode moment
+.vscode/

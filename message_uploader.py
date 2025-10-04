@@ -12,7 +12,7 @@ channels = db.collection("servers", "pizzeria", "channels")
 people = db.collection("servers", "pizzeria", "people")
 messages = db.collection("servers", "pizzeria", "messages")
 
-def channelToDict(channel: mr.Channel) -> dict[str, any]:
+def channelToDict(channel: mr.Channel) -> dict[str, str]:
     out = dict()
 
     out["server_name"] = channel.server_name
@@ -23,7 +23,7 @@ def channelToDict(channel: mr.Channel) -> dict[str, any]:
     
     return out
 
-def personToDict(person: mr.Person) -> dict[str, any]:
+def personToDict(person: mr.Person) -> dict[str, str]:
     out = dict()
 
     out["username"] = person.username
@@ -34,7 +34,7 @@ def personToDict(person: mr.Person) -> dict[str, any]:
 
     return out
 
-def messageToDict(message: mr.Message) -> dict[str, any]:
+def messageToDict(message: mr.Message) -> dict[str, str]:
     out = dict()
 
     out["sender"] = db.document("servers", "pizzeria", "people", message.sender.discord_id)
@@ -66,15 +66,39 @@ def loadPerson(docsnap: firestore.DocumentSnapshot) -> mr.Person:
 
     return mr.Person(person_username, person_id, person_nickname, person_color, person_avatar)
 
+def loadChannel(docsnap: firestore.DocumentSnapshot) -> mr.Channel:
+    channel_server_name: str = docsnap.get("server_name")
+    channel_name: str = docsnap.get("channel_name")
+    channel_icon: str = docsnap.get("icon")
+    channel_id: str = docsnap.get("channel_id")
+    channel_server_id: str = docsnap.get("server_id")
+
+    return mr.Channel(channel_server_name, channel_name, channel_icon, int(channel_id), int(channel_server_id))
+
 print("uploading channels")
 
 for channel_id in mr.channels:
     channel = mr.channels[channel_id]
     print(f"found channel {channel.channel_name}")
 
-    channel_dict = channelToDict(channel)
+    channelref = db.document("servers", "pizzeria", "channels", channel_id)
+    channelsnap = channelref.get()
 
-    channels.add(channel_dict, channel_id)
+    if channelsnap.exists:
+        # we only check icon, channel_name, and server_name since its the only things that would change
+        loadedchannel = loadChannel(channelsnap)
+
+        if channel.channel_name != loadedchannel.channel_name:
+            channelref.update({"channel_name": channel.channel_name})
+        
+        if channel.server_name != loadedchannel.server_name:
+            channelref.update({"server_name": channel.server_name})
+
+        if channel.icon != loadedchannel.icon:
+            channelref.update({"icon": channel.icon})
+    else:
+        channel_dict = channelToDict(channel)
+        channels.add(channel_dict, channel_id)
 
 print("uploading people")
 

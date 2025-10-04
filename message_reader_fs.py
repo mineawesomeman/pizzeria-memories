@@ -1,21 +1,26 @@
-from datetime import *
+from datetime import datetime, date
 from google.cloud import firestore
+import google.cloud.logging as gcloud_logging
 import google.auth as auth
 import numpy as np
 import pytz
 import random
 from readerwriterlock.rwlock import RWLockWrite
+import logging as log
 
 creds, project_id = auth.load_credentials_from_file("service-account-auth.json")
 
-print("authing")
+log.info("authing")
 db = firestore.Client(project=project_id, credentials=creds)
+
+gcp_client = gcloud_logging.Client(project=project_id, credentials=creds)
+gcp_client.setup_logging()
 
 channels = db.collection("servers", "pizzeria", "channels")
 people = db.collection("servers", "pizzeria", "people")
 messages = db.collection("servers", "pizzeria", "messages")
 
-EDT = pytz.timezone('US/Eastern')
+EDT = pytz.timezone('America/New_York')
 
 class Channel:
     server_name: str = ""
@@ -28,10 +33,10 @@ class Channel:
         self.server_name = server_name
         self.channel_name = channel_name
         self.icon = icon
-        self.channel_id = channel_id
-        self.server_id = server_id
+        self.channel_id = str(channel_id)
+        self.server_id = str(server_id)
     
-    def toDict(self) -> dict[str, any]:
+    def toDict(self) -> dict[str, str]:
         out = dict()
 
         out["server_name"] = self.server_name
@@ -62,7 +67,7 @@ class Person:
     def __eq__(self, value):
         return self.discord_id == value.discord_id
     
-    def toDict(self) -> dict[str, any]:
+    def toDict(self) -> dict[str, str]:
         out = dict()
 
         out["username"] = self.username
@@ -82,8 +87,8 @@ class Attachment:
         self.name = name
 
 class Message:
-    sender: Person = None
-    channel: Channel = None
+    sender: Person
+    channel: Channel
     content: str = ""
     ts: datetime = datetime.min
     discord_id: str = ""
@@ -106,7 +111,7 @@ class Message:
     def isDM(self) -> bool:
         return self.channel.server_id == "0"
     
-    def toDict(self) -> dict[str, any]:
+    def toDict(self) -> dict[str, str]:
         out = dict()
 
         out["sender"] = db.document("servers", "pizzeria", "people", self.sender.discord_id)
@@ -177,16 +182,21 @@ def putMessage(message: Message):
             person = loadPerson(sendersnap)
 
             if person.nickname != message.sender.nickname:
+                log.info(f"updating nickname for {message.sender.username} from {person.nickname} to {message.sender.nickname}")
                 senderref.update({"nickname": message.sender.nickname})
             
             if person.avatar != message.sender.avatar:
+                log.info(f"updating avatar for {message.sender.username}")
                 senderref.update({"avatar": message.sender.avatar})
             
             if person.color != message.sender.color:
+                log.info(f"updating color for {message.sender.username} from {person.color} to {message.sender.color}")
                 senderref.update({"color": message.sender.color})
     else:
+        log.info(f"adding new person {message.sender.username}")
         people.add(message.sender.toDict(), message.sender.discord_id)
 
+    log.debug(f"new message from {message.sender.username} in {message.channel.channel_name}: {message.content}")
     messages.add(message.toDict(), message.discord_id)
 
 def calcWeight(msg: Message) -> float:
@@ -237,7 +247,7 @@ def getMessageFromToday() -> Message:
     weights = []
     total_weight = 0
 
-    if all_messages_date != date.today():
+    if all_messages_date != getTodaysDate():
         updateTodaysMessages()
     for message in all_messages:
         msg_weight = calcWeight(message)
@@ -292,7 +302,7 @@ def loadChannel(docsnap: firestore.DocumentSnapshot) -> Channel:
     channel_id: str = docsnap.get("channel_id")
     channel_server_id: str = docsnap.get("server_id")
 
-    return Channel(channel_server_name, channel_name, channel_icon, channel_id, channel_server_id)
+    return Channel(channel_server_name, channel_name, channel_icon, int(channel_id), int(channel_server_id))
 
 def updateTodaysMessages() -> None:
     global tm_lock
@@ -300,12 +310,14 @@ def updateTodaysMessages() -> None:
         global todays_messages
         global date_of_todays_messages
 
-        if date_of_todays_messages == date.today():
+        if date_of_todays_messages == getTodaysDate():
             return
 
-        today = date.today()
+        today = getTodaysDate()
         todays_messages = set[Message]()
         date_of_todays_messages = today
+
+        log.info("updating today's messages")
 
         for year in range(2020, today.year):
             start = datetime(year, today.month, today.day, 0, 0, 0, 0, EDT)
@@ -318,7 +330,12 @@ def updateTodaysMessages() -> None:
             for doc in docs:
                 docobj = loadMessage(doc)
                 todays_messages.add(docobj)
+        log.info("finished updating today's messages")
 
-print("initializing message cache")
+def getTodaysDate() -> date:
+    now = datetime.now(EDT)
+    return date.fromtimestamp(now.timestamp())
+
+log.info("initializing message cache")
 updateTodaysMessages()
-print("message reader ready")
+log.info("message reader ready")
