@@ -326,10 +326,13 @@ def updateTodaysMessages() -> None:
             query = messages.where(filter=firestore.FieldFilter("ts", ">=", start)).where(filter=firestore.FieldFilter("ts", "<=", end)).limit(1000)
 
             docs = query.get()
+            log.info(f"found {len(docs)} messages for year {year}")
 
             for doc in docs:
                 docobj = loadMessage(doc)
                 todays_messages.add(docobj)
+            
+            log.info(f"finished loading messages for year {year}")
         log.info("finished updating today's messages")
 
 def getTodaysDate() -> date:
